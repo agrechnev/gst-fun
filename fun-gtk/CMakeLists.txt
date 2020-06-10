@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 14)
 find_package(PkgConfig)
 
 #gstreamer
-pkg_check_modules(GST gstreamer-1.0)
+pkg_check_modules(GST gstreamer-1.0 gstreamer-video-1.0)
                                   
 message("GST_INCLUDE_DIRS = ${GST_INCLUDE_DIRS}")
 message("GST_LIBRARY_DIRS = ${GST_LIBRARY_DIRS}")
