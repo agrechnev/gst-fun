@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
 
     cout << "GSTREAMER FUN 2 !!!" << endl;
 
-    string uri = "file:///home/seymour/Videos/tvoya.webm";
+    string uri = "file:///home/seymour/Videos/tvoya.mp4";
 //    string uri = "https://www.freedesktop.org/software/gstreamer-sdk/data/media/sintel_trailer-480p.webm";
 
 
