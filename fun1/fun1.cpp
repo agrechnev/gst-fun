@@ -21,8 +21,8 @@ static void padAddedCB(GstElement *src, GstPad *newPad, GoblinData *data) {
     using namespace std;
     cout << "PAD ADDED : " << GST_PAD_NAME(newPad) << " from " << GST_ELEMENT_NAME(src) << endl;
     GstCaps *newPadCaps = gst_pad_get_current_caps(newPad);
-    GstStructure *newPadSTruct = gst_caps_get_structure(newPadCaps, 0);
-    const gchar *newPadType = gst_structure_get_name(newPadSTruct);
+    GstStructure *newPadStruct = gst_caps_get_structure(newPadCaps, 0);
+    const gchar *newPadType = gst_structure_get_name(newPadStruct);
     cout << "TYPE =" << newPadType << endl;
 
     if (g_str_has_prefix(newPadType, "audio/x-raw")) {
@@ -37,7 +37,9 @@ static void padAddedCB(GstElement *src, GstPad *newPad, GoblinData *data) {
                 cout << "LINK FAILED !!!" << endl;
             else
                 cout << "LINK SUCCEEDED !!!" << endl;
+
         }
+        gst_object_unref(sinkPad);
     } else if (g_str_has_prefix(newPadType, "video/x-raw")) {
         cout << "VIDEO !!!" << endl;
         // Try to link
@@ -51,6 +53,7 @@ static void padAddedCB(GstElement *src, GstPad *newPad, GoblinData *data) {
             else
                 cout << "LINK SUCCEEDED !!!" << endl;
         }
+        gst_object_unref(sinkPad);
     }
 
     if (newPadCaps)
@@ -81,7 +84,7 @@ int main(int argc, char **argv) {
 
     data.pipeline = gst_pipeline_new("goblin-pipeline");
     if (!data.source || !data.convertAudio || !data.resampleAudio || !data.sinkAudio ||
-         !data.convertVideo || !data.sinkVideo || !data.pipeline)
+        !data.convertVideo || !data.sinkVideo || !data.pipeline)
         throw runtime_error("Canot create elements !");
 
     gst_bin_add_many(GST_BIN(data.pipeline), data.source,
