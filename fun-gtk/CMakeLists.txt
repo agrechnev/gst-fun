@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 14)
 find_package(PkgConfig)
 
 #gstreamer
+# Needs also: sudo apt install libgstreamer-plugins-base1.0-dev
 pkg_check_modules(GST gstreamer-1.0 gstreamer-video-1.0)
                                   
 message("GST_INCLUDE_DIRS = ${GST_INCLUDE_DIRS}")

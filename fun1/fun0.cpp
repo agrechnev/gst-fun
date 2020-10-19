@@ -9,17 +9,72 @@
 
 //======================================================================================================================
 struct GoblinData {
-    GstElement *pipeline;
-    GstElement *source;
-    GstElement *convertAudio;
-    GstElement *resampleAudio;
-    GstElement *sinkAudio;
-    GstElement *convertVideo;
-    GstElement *sinkVideo;
+    GstElement *pipeline = nullptr;
+    GstElement *source = nullptr;
+    GstElement *convertAudio = nullptr;
+    GstElement *resampleAudio = nullptr;
+    GstElement *sinkAudio = nullptr;
+    GstElement *convertVideo = nullptr;
+    GstElement *sinkVideo = nullptr;
+    bool flagQuit = false;
+    bool playing = false;
+    gboolean seekEnabled = false;
+    gint64 duration = -1;
 };
 
 //======================================================================================================================
-static bool log_msg(GstMessage *msg) {
+static void handleMsg(GoblinData &data, GstMessage *msg) {
+    using namespace std;
+    if (!msg)
+        return;
+    switch (GST_MESSAGE_TYPE(msg)) {
+        case GST_MESSAGE_ERROR:
+            GError *err;
+            gchar *debugInfo;
+            gst_message_parse_error(msg, &err, &debugInfo);
+            cout << "ERROR [" << GST_OBJECT_NAME(msg->src) << "] " << err->message << endl;
+            if (debugInfo)
+                cout << debugInfo << endl;
+            data.flagQuit = true;
+            break;
+        case GST_MESSAGE_EOS:
+            cout << "EOS" << endl;
+            data.flagQuit = true;
+            break;
+        case GST_MESSAGE_STATE_CHANGED:
+            if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data.pipeline)) {
+                GstState sOld, sNew, sPenging;
+                gst_message_parse_state_changed(msg, &sOld, &sNew, &sPenging);
+                cout << "PIPELINE STATE CHANGED [" << GST_OBJECT_NAME(msg->src) << "] from " << gst_element_state_get_name(sOld)
+                     << " to " << gst_element_state_get_name(sNew) << endl;
+                data.playing = sNew == GST_STATE_PLAYING;
+                if (data.playing) {
+                    // Query if seek is possible
+                    GstQuery *query = gst_query_new_seeking(GST_FORMAT_TIME);
+                    if (gst_element_query(data.pipeline, query)) {
+                        gint64 t1, t2;
+                        gst_query_parse_seeking(query, NULL, &data.seekEnabled, &t1, &t2);
+                        if (data.seekEnabled)
+                            cout << "SEEKING IS ENABLED FROM " << 1.0 * t1 / GST_SECOND << " TO "
+                                 << 1.0 * t2 / GST_SECOND << endl;
+                        else
+                            cout << "SEEKING IS DISABLED" << endl;
+                    } else {
+                        cout << "SEEKING QUERY FAILED !!!" << endl;
+                    }
+                    gst_query_unref(query);
+                }
+            }
+            break;
+        default:
+            cout << "Who knows type = " << GST_MESSAGE_TYPE(msg) << endl;
+            break;
+    }
+}
+
+
+//======================================================================================================================
+static bool logMsg(GstMessage *msg) {
     using namespace std;
     bool fatal = false;
     if (!msg)
@@ -141,17 +196,33 @@ int main(int argc, char **argv) {
     GstBus *bus = gst_element_get_bus(data.pipeline);
     GstMessage *msg;
 
-    for (;;) {
-        msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE,
-                                         static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS |
-                                                                     GST_MESSAGE_STATE_CHANGED));
-        if (log_msg(msg))
-            break;
-    }
+    do {
+//        msg = gst_bus_timed_pop_filtered(bus, 100 * GST_MSECOND,
+//                                         static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS |
+//                                                                     GST_MESSAGE_STATE_CHANGED));
+        msg = gst_bus_timed_pop(bus, 100 * GST_MSECOND);
+
+        if (msg != nullptr) {
+            handleMsg(data, msg);
+        } else {
+            if (data.playing) {
+                gint64 posCurrent = -1;
+                if (!gst_element_query_position(data.pipeline, GST_FORMAT_TIME, &posCurrent))
+                    cout << "CANNOT QUERY POSITION !!!" << endl;
+                if (!gst_element_query_duration(data.pipeline, GST_FORMAT_TIME, &data.duration))
+                    cout << "CANNOT QUERY DURATION !!!" << endl;
+
+                // Nanosec -> double sec, GST_SECOND == 10^9
+                cout << "POS = " << 1.0 * posCurrent / GST_SECOND << "/"
+                     << 1.0 * data.duration / GST_SECOND << endl;
+
+            }
+        }
+        if (msg != nullptr)
+            gst_message_unref(msg);
+    } while (!data.flagQuit);
 
     // Free resources
-    if (msg != nullptr)
-        gst_message_unref(msg);
     gst_object_unref(bus);
     gst_element_set_state(data.pipeline, GST_STATE_NULL);
     gst_object_unref(data.pipeline);
