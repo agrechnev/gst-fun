@@ -22,6 +22,7 @@ struct GoblinData {
     GstElement *playBin = nullptr;
     GtkWidget *streamInfo = nullptr;
     GtkWidget *slider = nullptr;
+    gulong sliderUpdateSigID = 0;
     GstState state = GST_STATE_VOID_PENDING;
     gint64 duration = 0;
 };
@@ -47,6 +48,15 @@ static void cbStop(GtkButton *button, GoblinData *data) {
     using namespace std;
 //    cout << "STOP !!!" << endl;
     gst_element_set_state(data->playBin, GST_STATE_READY);
+}
+
+//======================================================================================================================
+static void cbSlider(GtkRange *range, GoblinData *data) {
+    using namespace std;
+    double val = gtk_range_get_value(GTK_RANGE(data->slider));
+    cout << "cbSlider !!! val=" << val << endl;
+    gst_element_seek_simple(data->playBin, GST_FORMAT_TIME, GstSeekFlags(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT),
+                            (gint64) (val * GST_SECOND));
 }
 
 //======================================================================================================================
@@ -90,6 +100,7 @@ static gboolean cbDraw(GtkWidget *widget, cairo_t *cr, GoblinData *data) {
     }
     return FALSE;
 }
+
 //======================================================================================================================
 // Create the GTK+ UI
 static void createUI(GoblinData *data) {
@@ -119,6 +130,7 @@ static void createUI(GoblinData *data) {
     // Slider
     data->slider = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100, 1);
     gtk_scale_set_draw_value(GTK_SCALE(data->slider), TRUE);
+    data->sliderUpdateSigID = g_signal_connect(G_OBJECT(data->slider), "value-changed", G_CALLBACK(cbSlider), data);
 
 
     // Layout
@@ -161,14 +173,17 @@ static gboolean refreshUI(GoblinData *data) {
         // Update current pos
         gint64 current;
         if (gst_element_query_position(data->playBin, GST_FORMAT_TIME, &current)) {
+            // Block and unblock signals fun
+            g_signal_handler_block(data->slider, data->sliderUpdateSigID);
             gtk_range_set_value(GTK_RANGE(data->slider), gdouble(current) / GST_SECOND);
+            g_signal_handler_unblock(data->slider, data->sliderUpdateSigID);
         }
     }
 
 
-
     return TRUE;
 }
+
 //======================================================================================================================
 static void analyzeStreams(GoblinData *data) {
     using namespace std;
@@ -221,6 +236,7 @@ static void analyzeStreams(GoblinData *data) {
     // No text, who cares !
     gtk_text_buffer_set_text(text, oss.str().c_str(), -1);
 }
+
 //======================================================================================================================
 //  GST callbacks
 //======================================================================================================================
@@ -231,7 +247,7 @@ static void cbApplication(GstBus *bus, GstMessage *msg, GoblinData *data) {
 }
 
 //======================================================================================================================
-static void cbStateChanged(GstBus *bus, GstMessage *msg, GoblinData * data){
+static void cbStateChanged(GstBus *bus, GstMessage *msg, GoblinData *data) {
     using namespace std;
     GstState sOld, sNew, sPen;
     if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data->playBin)) {
@@ -240,6 +256,7 @@ static void cbStateChanged(GstBus *bus, GstMessage *msg, GoblinData * data){
         data->state = sNew;
     }
 }
+
 //======================================================================================================================
 static void cbError(GstBus *bus, GstMessage *msg, GoblinData *data) {
     using namespace std;
@@ -251,12 +268,14 @@ static void cbError(GstBus *bus, GstMessage *msg, GoblinData *data) {
     g_clear_error(&err);
     g_free(deb);
 }
+
 //======================================================================================================================
 static void cbEOS(GstBus *bus, GstMessage *msg, GoblinData *data) {
     using namespace std;
     cout << "EOS reached !" << endl;
     gst_element_set_state(data->playBin, GST_STATE_READY);
 }
+
 //======================================================================================================================
 static void cbTags(GstElement *playbin, gint stream, GoblinData *data) {
     using namespace std;
@@ -302,7 +321,7 @@ int main(int argc, char **argv) {
         throw runtime_error("Cannot start playing !");
 
     // Register UI refresh
-    g_timeout_add_seconds(1, (GSourceFunc)refreshUI, &data);
+    g_timeout_add_seconds(1, (GSourceFunc) refreshUI, &data);
 
     // GTK main loop
     gtk_main();
