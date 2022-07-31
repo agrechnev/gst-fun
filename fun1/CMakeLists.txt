@@ -5,7 +5,7 @@ project(gst-fun1)
 set(CMAKE_CXX_STANDARD 14)
 find_package(PkgConfig)
 
-pkg_check_modules(GST gstreamer-1.0)
+pkg_check_modules(GST REQUIRED gstreamer-1.0)
                                   
 
 message("GST_INCLUDE_DIRS = ${GST_INCLUDE_DIRS}")
