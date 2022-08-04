@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
     data.pipeline = gst_pipeline_new("goblin-pipeline");
     if (!data.source || !data.convertAudio || !data.resampleAudio || !data.sinkAudio ||
         !data.convertVideo || !data.sinkVideo || !data.pipeline)
-        throw runtime_error("Canot create elements !");
+        throw runtime_error("Cannot create elements !");
 
     gst_bin_add_many(GST_BIN(data.pipeline), data.source,
                      data.convertAudio, data.resampleAudio, data.sinkAudio,

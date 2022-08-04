@@ -77,9 +77,26 @@ void printPadTemplates(GstElementFactory *factory) {
             gst_caps_unref(caps);
         }
     }
-
+    cout << "===================================" << endl;
 }
 
+//======================================================================================================================
+void printPadCaps(GstElement *element, const char *padName){
+    using namespace std;
+    cout << "===================================" << endl;
+    GstPad *pad = gst_element_get_static_pad(element, padName);
+    myAssert(pad);
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps)
+        caps = gst_pad_query_caps(pad, nullptr);
+
+    cout << "CAPS for the pad" << padName << " : " << endl;
+    printCaps(caps, "    ");
+
+    cout << "===================================" << endl;
+    gst_caps_unref(caps);
+    gst_object_unref(pad);
+}
 //======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
@@ -104,7 +121,8 @@ int main(int argc, char **argv) {
     gst_bin_add_many(GST_BIN(pipeline), source, sink, nullptr);
     myAssert(gst_element_link(source, sink));
 
-    exit(0);
+    cout << "In NULL state:" << endl;
+    printPadCaps(sink, "sink");
 
     //======================= Play
     int ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
@@ -145,6 +163,7 @@ int main(int argc, char **argv) {
                     gst_message_parse_state_changed(msg, &sOld, &sNew, &sPenging);
                     cout << "Pipeline changed from " << gst_element_state_get_name(sOld) << " to " <<
                          gst_element_state_get_name(sNew) << endl;
+                    printPadCaps(sink, "sink");
                 }
                 break;
             case (GST_MESSAGE_STEP_START):
