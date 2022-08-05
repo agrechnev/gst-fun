@@ -20,3 +20,6 @@ include_directories( ${GST_INCLUDE_DIRS}  )
 
 add_executable(fun1 fun1.cpp)
 target_link_libraries(fun1 ${GST_LIBRARIES}  ${OpenCV_LIBS})
+
+add_executable(fun2 fun2.cpp)
+target_link_libraries(fun2 ${GST_LIBRARIES}  ${OpenCV_LIBS})

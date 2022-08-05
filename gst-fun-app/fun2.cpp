@@ -60,29 +60,30 @@ int main(int argc, char **argv) {
     gst_init(&argc, &argv);
 
     // Set up the pipeline
-//        data.source = gst_element_factory_make("videotestsrc", "goblin_source");
-//        data.sinkVideo = gst_element_factory_make("appsink", "goblin_sink");
-//        data.pipeline = gst_pipeline_new("goblin_pipeline");
-//        myAssert(data.source && data.sinkVideo && data.pipeline);
-//        gst_bin_add_many(GST_BIN(data.pipeline), data.source, data.sinkVideo, nullptr);
-//        myAssert(gst_element_link_many(data.source, data.sinkVideo, nullptr));
-
-//        string pipeStr = "videotestsrc num-buffers=5 ! video/x-raw, width=640, height=480, format=RGB ! appsink name=testsink";
-    string pipeStr = "videotestsrc pattern=18 ! video/x-raw, width=640, height=480, format=BGR ! appsink name=testsink max-buffers=2";
-    data.pipeline = gst_parse_launch(pipeStr.c_str(), nullptr);
-    data.sinkVideo = gst_bin_get_by_name(GST_BIN (data.pipeline), "testsink");
+        data.source = gst_element_factory_make("videotestsrc", "goblin_source");
+        data.sinkVideo = gst_element_factory_make("appsink", "goblin_sink");
+        data.pipeline = gst_pipeline_new("goblin_pipeline");
+        myAssert(data.source && data.sinkVideo && data.pipeline);
+        gst_bin_add_many(GST_BIN(data.pipeline), data.source, data.sinkVideo, nullptr);
+        myAssert(gst_element_link_many(data.source, data.sinkVideo, nullptr));
 
 
     // Set up source
-//    g_object_set(data.source, "pattern", 18, "is-live", true, nullptr);
+    g_object_set(data.source, "pattern", 18, "is-live", true, nullptr);
 
 
     // Set up the appsink
 //    GstVideoInfo info;
 //    gst_video_info_set_format(&info, GST_VIDEO_FORMAT_BGR, 640, 480);
 //    GstCaps *capsVideo = gst_video_info_to_caps(&info);
-////    printCaps(capsVideo, " ");
-//    g_object_set(data.sinkVideo, "caps", capsVideo, nullptr);
+
+//    string capsStr = "video/x-raw,format=BGR,width=640,height=480,pixel-aspect-ratio=1/1";
+    string capsStr = "video/x-raw,format=BGR,width=640,height=480";
+    GstCaps *capsVideo = gst_caps_from_string(capsStr.c_str());
+
+//    printCaps(capsVideo, " ");
+//    exit(0);
+    g_object_set(data.sinkVideo, "caps", capsVideo, nullptr);
 
 
     gst_element_set_state(data.pipeline, GST_STATE_PLAYING);
