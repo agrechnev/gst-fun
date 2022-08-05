@@ -5,7 +5,7 @@ project(gst-fun1)
 set(CMAKE_CXX_STANDARD 14)
 find_package(PkgConfig)
 
-pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-audio-1.0)
+pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-audio-1.0 gstreamer-pbutils-1.0)
 
 message("GST_INCLUDE_DIRS = ${GST_INCLUDE_DIRS}")
 message("GST_LIBRARY_DIRS = ${GST_LIBRARY_DIRS}")
@@ -31,3 +31,6 @@ target_link_libraries(fun4 ${GST_LIBRARIES})
 
 add_executable(fun5 fun5.cpp)
 target_link_libraries(fun5 ${GST_LIBRARIES})
+
+add_executable(fun6 fun6.cpp)
+target_link_libraries(fun6 ${GST_LIBRARIES})

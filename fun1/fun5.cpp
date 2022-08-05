@@ -27,6 +27,7 @@ struct GoblinData {
     GstElement *tee = nullptr;
     GstElement *queueAudio = nullptr;
     GstElement *queueVideo = nullptr;
+    GstElement *queueApp = nullptr;
     GstElement *convertAudio1 = nullptr;
     GstElement *convertAudio2 = nullptr;
     GstElement *resampleAudio = nullptr;
@@ -34,6 +35,7 @@ struct GoblinData {
     GstElement *visual = nullptr;
     GstElement *convertVideo = nullptr;
     GstElement *sinkVideo = nullptr;
+    GstElement *sinkApp = nullptr;
 
     //==== Generator data
     guint sourceId = 0;
@@ -124,6 +126,18 @@ static void stopFeed(GstElement *source, GoblinData *data) {
 }
 
 //======================================================================================================================
+static GstFlowReturn newSample(GstElement *sink, GoblinData *data) {
+    using namespace std;
+    GstSample *sample = nullptr;
+    g_signal_emit_by_name(sink, "pull-sample", &sample);
+    if (sample) {
+        cout << "*";
+        cout.flush();
+        return GST_FLOW_OK;
+    } else
+        return GST_FLOW_ERROR;
+}
+//======================================================================================================================
 static void errorCB(GstBus *bus, GstMessage *msg, GoblinData *data) {
     using namespace std;
     GError *err;
@@ -148,6 +162,7 @@ int main(int argc, char **argv) {
     data.tee = gst_element_factory_make("tee", "goblin_tee");
     data.queueAudio = gst_element_factory_make("queue", "goblin_queue_audio");
     data.queueVideo = gst_element_factory_make("queue", "goblin_queue_video");
+    data.queueApp = gst_element_factory_make("queue", "goblin_queue_app");
     data.convertAudio1 = gst_element_factory_make("audioconvert", "goblin_convert_audio1");
     data.convertAudio2 = gst_element_factory_make("audioconvert", "goblin_convert_audio2");
     data.resampleAudio = gst_element_factory_make("audioresample", "goblin_resample_audio");
@@ -155,9 +170,10 @@ int main(int argc, char **argv) {
     data.visual = gst_element_factory_make("wavescope", "goblin_wavescope");
     data.convertVideo = gst_element_factory_make("videoconvert", "goblin_convert_video");
     data.sinkVideo = gst_element_factory_make("autovideosink", "goblin_sink_video");
+    data.sinkApp = gst_element_factory_make("appsink", "goblin_sink_app");
     data.pipeline = gst_pipeline_new("goblin_pipeline");
 
-    myAssert(data.source && data.tee && data.queueAudio && data.queueVideo);
+    myAssert(data.source && data.tee && data.queueAudio && data.queueVideo && data.queueApp);
     myAssert(data.convertAudio1 && data.resampleAudio && data.sinkAudio);
     myAssert(data.convertAudio2 && data.visual && data.convertVideo && data.sinkVideo && data.pipeline);
 
@@ -173,30 +189,37 @@ int main(int argc, char **argv) {
     g_signal_connect(data.source, "need-data", G_CALLBACK(startFeed), &data);
     g_signal_connect(data.source, "enough-data", G_CALLBACK(stopFeed), &data);
 
-
     // Configure appsink
+    g_object_set(data.sinkApp, "emit-signals", TRUE, "caps", capsAudio, nullptr);
+    g_signal_connect(data.sinkApp, "new-sample", G_CALLBACK(newSample), &data);
     gst_caps_unref(capsAudio);
 
     // Add elements and link what we can
     gst_bin_add_many(GST_BIN(data.pipeline),
-                     data.source, data.tee, data.queueAudio, data.queueVideo,
+                     data.source, data.tee, data.queueAudio, data.queueVideo, data.queueApp,
                      data.convertAudio1, data.resampleAudio, data.sinkAudio,
                      data.convertAudio2, data.visual, data.convertVideo, data.sinkVideo,
+                     data.sinkApp,
                      nullptr);
 
     myAssert(gst_element_link_many(data.source, data.tee, nullptr));
     myAssert(gst_element_link_many(data.queueAudio, data.convertAudio1, data.resampleAudio, data.sinkAudio, nullptr));
     myAssert(gst_element_link_many(data.queueVideo, data.convertAudio2, data.visual, data.convertVideo, data.sinkVideo, nullptr));
+    myAssert(gst_element_link_many(data.queueApp,  data.sinkApp, nullptr));
 
     // Manually link tee
     GstPad *padTeeAudio = gst_element_request_pad_simple(data.tee, "src_%u");
     GstPad *padTeeVideo = gst_element_request_pad_simple(data.tee, "src_%u");
+    GstPad *padTeeApp = gst_element_request_pad_simple(data.tee, "src_%u");
     GstPad *padQueueAudio = gst_element_get_static_pad(data.queueAudio, "sink");
     GstPad *padQueueVideo = gst_element_get_static_pad(data.queueVideo, "sink");
+    GstPad *padQueueApp = gst_element_get_static_pad(data.queueApp, "sink");
     myAssert(gst_pad_link(padTeeAudio, padQueueAudio) == GST_PAD_LINK_OK);
     myAssert(gst_pad_link(padTeeVideo, padQueueVideo) == GST_PAD_LINK_OK);
+    myAssert(gst_pad_link(padTeeApp, padQueueApp) == GST_PAD_LINK_OK);
     gst_object_unref(padQueueAudio);
     gst_object_unref(padQueueVideo);
+    gst_object_unref(padQueueApp);
 
     // Error callback
     GstBus *bus = gst_element_get_bus(data.pipeline);
@@ -216,7 +239,7 @@ int main(int argc, char **argv) {
     gst_element_release_request_pad(data.tee, padTeeVideo);
     gst_object_unref(padTeeAudio);
     gst_object_unref(padTeeVideo);
-
+    gst_object_unref(padTeeApp);
 
     gst_element_set_state(data.pipeline, GST_STATE_NULL);
     gst_object_unref(data.pipeline);
