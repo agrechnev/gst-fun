@@ -1,7 +1,6 @@
-// FUN2: Use appsink with opencv to show video, minor improvements, create pipeline by hand
+// FUN3: Use appsink with opencv to show video from a file (no sound)
 
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <stdexcept>
 #include <thread>
@@ -22,9 +21,7 @@ inline void myAssert(bool b, const std::string &s = "MYASSERT ERROR !") {
 //======================================================================================================================
 struct GoblinData {
     GstElement *pipeline;
-    GstElement *source;
     GstElement *sinkVideo;
-    GstElement *convVideo;
 };
 
 //======================================================================================================================
@@ -53,44 +50,48 @@ void printCaps(const GstCaps *caps, const std::string &pfx) {
 }
 
 //======================================================================================================================
+static gboolean errorCB(GstBus *bus, GstMessage *msg, void *data) {
+    using namespace std;
+
+    if (GST_MESSAGE_TYPE (msg) == GST_MESSAGE_ERROR) {
+        GError *err;
+        gchar *dbg;
+        gst_message_parse_error(msg, &err, &dbg);
+        cout << " ERR = " << err->message << " FROM " << GST_OBJECT_NAME(msg->src) << endl;
+        cout << "DBG = " << dbg << endl;
+        g_clear_error(&err);
+        g_free(dbg);
+    }
+    return TRUE;
+}
+
+//======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
-    cout << "fun1" << endl;
+    cout << "fun3" << endl;
 
-//    string uri = "file:///home/seymour/Videos/tvoya.mp4";
+    string uri = "file:///home/seymour/Videos/tvoya.mp4";
 
     GoblinData data;
     gst_init(&argc, &argv);
 
     // Set up the pipeline
-    data.source = gst_element_factory_make("videotestsrc", "goblin_source");
-    data.sinkVideo = gst_element_factory_make("appsink", "goblin_sink");
-    data.pipeline = gst_pipeline_new("goblin_pipeline");
-    myAssert(data.source && data.sinkVideo && data.pipeline);
-    gst_bin_add_many(GST_BIN(data.pipeline), data.source, data.sinkVideo, nullptr);
-    myAssert(gst_element_link_many(data.source, data.sinkVideo, nullptr));
+    string pipeStr = "uridecodebin uri=" + uri + " ! videoconvert ! video/x-raw, format=BGR ! appsink name=testsink max-buffers=2";
+    data.pipeline = gst_parse_launch(pipeStr.c_str(), nullptr);
+    myAssert(data.pipeline, "Can't create pipeline !");
+    data.sinkVideo = gst_bin_get_by_name(GST_BIN (data.pipeline), "testsink");
+    myAssert(data.sinkVideo);
+
+//    GstBus *bus = gst_element_get_bus(data.pipeline);
+//    gst_bus_add_signal_watch(bus);
+//    g_signal_connect(G_OBJECT(bus), "message::error", (GCallback)errorCB, &data);
+//    gst_object_unref(bus);
+
+    gst_bus_add_watch (GST_ELEMENT_BUS (data.pipeline), errorCB, &data);
 
 
-    // Set up source
-    g_object_set(data.source, "pattern", 18, "is-live", true, nullptr);
-
-
-    // Set up the appsink
-//    GstVideoInfo info;
-//    gst_video_info_set_format(&info, GST_VIDEO_FORMAT_BGR, 640, 480);
-//    GstCaps *capsVideo = gst_video_info_to_caps(&info);
-
-//    string capsStr = "video/x-raw,format=BGR,width=640,height=480,pixel-aspect-ratio=1/1";
-    string capsStr = "video/x-raw,format=BGR,width=640,height=480";
-    GstCaps *capsVideo = gst_caps_from_string(capsStr.c_str());
-
-//    printCaps(capsVideo, " ");
-//    exit(0);
-    g_object_set(data.sinkVideo, "caps", capsVideo, nullptr);
-    gst_caps_unref(capsVideo);
-
-
-    gst_element_set_state(data.pipeline, GST_STATE_PLAYING);
+    GstStateChangeReturn ret = gst_element_set_state(data.pipeline, GST_STATE_PLAYING);
+    myAssert(ret != GST_STATE_CHANGE_FAILURE, "Can't play !");
 
     for (;;) {
         // Pull the sample
@@ -113,7 +114,7 @@ int main(int argc, char **argv) {
         int imW, imH;
         assert(gst_structure_get_int(s, "width", &imW));
         assert(gst_structure_get_int(s, "height", &imH));
-//        cout << "W = " << imW << ", H = " << imH << endl;
+        cout << "Sample: W = " << imW << ", H = " << imH << endl;
 
 //        cout << "sample !" << endl;
         // Process sample
@@ -121,7 +122,7 @@ int main(int argc, char **argv) {
         GstMapInfo map;
         myAssert(gst_buffer_map(buffer, &map, GST_MAP_READ));
         myAssert(map.size == imW * imH * 3);
-//        cout << "size = " << map.size << " ==? " << 640*480*3 << endl;
+//        cout << "size = " << map.size << " ==? " << imW*imH*3 << endl;
 
         cv::Mat frame(imH, imW, CV_8UC3, (void *) map.data);
         cv::imshow("frame", frame);

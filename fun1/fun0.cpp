@@ -16,75 +16,22 @@ inline void myAssert(bool b, const std::string &s = "MYASSERT ERROR !") {
 }
 
 //======================================================================================================================
-struct GoblinData {
-    GstElement *pipeline;
-    GstElement *source;
-    GstElement *sinkVideo;
-    GstElement *convVideo;
-    GstElement *sinkAudio;
-    GstElement *convAudio;
-};
-//======================================================================================================================
-static void padAddedCB(GstElement *src, GstPad *newPad, GoblinData *data) {
-    using namespace std;
-    cout << "PAD ADDED : " << GST_PAD_NAME(newPad) << " from " << GST_ELEMENT_NAME(src) << endl;
-    GstCaps *newPadCaps = gst_pad_get_current_caps(newPad);
-    GstStructure *newPadStruct = gst_caps_get_structure(newPadCaps, 0);
-    const gchar *newPadType = gst_structure_get_name(newPadStruct);
-    cout << "TYPE = " << newPadType << endl;
-
-    if (g_str_has_prefix(newPadType, "audio/x-raw")) {
-        cout << "AUDIO !" << endl;
-        GstPad *sinkPad = gst_element_get_static_pad(data->convAudio, "sink");
-        myAssert(!gst_pad_is_linked(sinkPad), "Already linked !");
-        GstPadLinkReturn ret = gst_pad_link(newPad, sinkPad);
-        myAssert(!GST_PAD_LINK_FAILED(ret), "Link failed !");
-        gst_object_unref(sinkPad);
-    } else if (g_str_has_prefix(newPadType, "video/x-raw")) {
-        cout << "VIDEO !" << endl;
-        GstPad *sinkPad = gst_element_get_static_pad(data->convVideo, "sink");
-        myAssert(!gst_pad_is_linked(sinkPad), "Already linked !");
-        GstPadLinkReturn ret = gst_pad_link(newPad, sinkPad);
-        myAssert(!GST_PAD_LINK_FAILED(ret), "Link failed !");
-        gst_object_unref(sinkPad);
-    }
-
-    if (newPadCaps)
-        gst_caps_unref(newPadCaps);
-}
-//======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
     cout << "gst-fun 0 !!!!" << endl;
 
-    string uri = "file:///home/seymour/Videos/tvoya.mp4";
-
     gst_init(&argc, &argv);
 
-    // Build the pipeline, not fully linked yet
-    GoblinData data;
-    data.source = gst_element_factory_make("uridecodebin", "goblin_source");
-    data.convVideo = gst_element_factory_make("videoconvert", "goblin_video_conv");
-    data.sinkVideo = gst_element_factory_make("autovideosink", "goblin_video_sink");
-    data.convAudio = gst_element_factory_make("audioconvert", "goblin_audio_conv");
-    data.sinkAudio = gst_element_factory_make("autoaudiosink", "goblin_audio_sink");
-
-    data.pipeline = gst_pipeline_new("goblin_pipeline");
-    myAssert(data.source && data.sinkVideo  && data.convVideo && data.convAudio && data.sinkAudio && data.pipeline, "Can't create elements !");
-    gst_bin_add_many(GST_BIN(data.pipeline), data.source,  data.convVideo, data.sinkVideo, data.convAudio, data.sinkAudio, nullptr);
-    myAssert(gst_element_link_many(data.convVideo, data.sinkVideo, nullptr), "Can't link video");
-    myAssert(gst_element_link_many(data.convAudio, data.sinkAudio, nullptr), "Can't link audio");
-
-    g_object_set(data.source, "uri", uri.c_str(), nullptr);
-
-    // Connect signal
-    g_signal_connect(data.source, "pad-added", G_CALLBACK(padAddedCB), &data);
+    string pipeStr = "v4l2src ! videoconvert ! autovideosink";
+//    string pipeStr = "camerabin ! videoconvert ! autovideosink";
+    GstElement *pipeline = gst_parse_launch(pipeStr.c_str(), nullptr);
+    myAssert(pipeline);
 
     // PLay
-    int ret = gst_element_set_state(data.pipeline, GST_STATE_PLAYING);
+    int ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
     myAssert(ret != GST_STATE_CHANGE_FAILURE);
 
-    GstBus * bus = gst_element_get_bus(data.pipeline);
+    GstBus * bus = gst_element_get_bus(pipeline);
     bool flagQuit = false;
     do {
 //        GstMessage *msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE, GstMessageType(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
@@ -114,7 +61,7 @@ int main(int argc, char **argv) {
                 break;
             case (GST_MESSAGE_STATE_CHANGED):
                 cout << " State changed !" << endl;
-                if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data.pipeline)) {
+                if (GST_MESSAGE_SRC(msg) == GST_OBJECT(pipeline)) {
                     GstState sOld, sNew, sPenging;
                     gst_message_parse_state_changed(msg, &sOld, &sNew, &sPenging);
                     cout << "Pipeline changed from " << gst_element_state_get_name(sOld) << " to " <<
@@ -141,8 +88,8 @@ int main(int argc, char **argv) {
     } while (!flagQuit);
 
     gst_object_unref(bus);
-    gst_element_set_state(data.pipeline, GST_STATE_NULL);
-    gst_object_unref(data.pipeline);
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(pipeline);
     return 0;
 }
 //======================================================================================================================

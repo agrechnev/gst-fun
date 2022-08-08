@@ -23,3 +23,9 @@ target_link_libraries(fun1 ${GST_LIBRARIES}  ${OpenCV_LIBS})
 
 add_executable(fun2 fun2.cpp)
 target_link_libraries(fun2 ${GST_LIBRARIES}  ${OpenCV_LIBS})
+
+add_executable(fun3 fun3.cpp)
+target_link_libraries(fun3 ${GST_LIBRARIES}  ${OpenCV_LIBS})
+
+add_executable(fun4 fun4.cpp)
+target_link_libraries(fun4 ${GST_LIBRARIES}  ${OpenCV_LIBS})
