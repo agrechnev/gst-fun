@@ -36,8 +36,7 @@ struct GoblinData {
 
     // Flags
     std::atomic_bool flagStop{false};
-//    std::atomic_bool flagRun{false};
-    bool flagRun = false;
+    std::atomic_bool flagRun{false};
 };
 
 //======================================================================================================================
