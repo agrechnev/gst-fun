@@ -1,6 +1,6 @@
 //
 // Created by IT-JIM 
-// FUN5: Two gstreamer pipelines, process frames in opencv in the middle
+// FUN6: Two gstreamer pipelines, process frames in opencv in the middle, write to file
 
 #include <iostream>
 #include <string>
@@ -265,21 +265,21 @@ void codeThreadProcess(GoblinData &data) {
 //======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
-    cout << "fun5" << endl;
+    cout << "fun6" << endl;
 
     string uri = "file:///home/seymour/Videos/tvoya.mp4";
     gst_init(&argc, &argv);
     GoblinData data;
 
     // Create Goblin (input) pipeline
-    string goblinPipeStr = "uridecodebin3 name=goblin_src uri=" + uri + " ! videoconvert ! video/x-raw, format=BGR ! appsink sync=true name=goblin_sink";
+    string goblinPipeStr = "uridecodebin3 name=goblin_src uri=" + uri + " ! videoconvert ! video/x-raw, format=BGR ! appsink sync=false name=goblin_sink";
     data.goblinPipeline = gst_parse_launch(goblinPipeStr.c_str(), nullptr);
     myAssert(data.goblinPipeline);
     data.goblinSink = gst_bin_get_by_name(GST_BIN (data.goblinPipeline), "goblin_sink");
     myAssert(data.goblinSink);
 
     // Create Elf (output) pipeline
-    string elfPipeStr = "appsrc name=elf_src ! videoconvert ! autovideosink";
+    string elfPipeStr = "appsrc name=elf_src format=time caps=video/x-raw, format=BGR ! videoconvert ! x264enc ! avimux ! filesink location=out.avi";
     data.elfPipeline = gst_parse_launch(elfPipeStr.c_str(), nullptr);
     myAssert(data.elfPipeline);
     data.elfSrc = gst_bin_get_by_name(GST_BIN(data.elfPipeline), "elf_src");

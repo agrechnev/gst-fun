@@ -1,12 +1,14 @@
 //
 // Created by IT-JIM 
-// FUN4: appsrc example, create video with opencv, display with gstreamer, try to keep a correct FPS
+// FUN4F: appsrc example, create video with opencv, display with gstreamer, try to keep a correct FPS
+// Writing to file version
 
 #include <iostream>
 #include <string>
 #include <stdexcept>
 #include <thread>
 #include <atomic>
+#include <cmath>
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -27,8 +29,6 @@ struct GoblinData {
     // Elements
     GstElement *pipeline = nullptr;
     GstElement *source = nullptr;
-    GstElement *sinkVideo = nullptr;
-    GstElement *convVideo = nullptr;
 
     // Misc
     cv::Size2i size;
@@ -139,7 +139,7 @@ void codeThreadSrc(GoblinData &data, const std::string &fileName) {
     Mat frame;
     while (!data.flagStop) {
         if (!data.flagRun) {
-            cout << "(wait)" << endl;
+//            cout << "(wait)" << endl;
             this_thread::sleep_for(chrono::milliseconds(10));
             continue;
         }
@@ -162,10 +162,16 @@ void codeThreadSrc(GoblinData &data, const std::string &fileName) {
         gst_buffer_unmap(buffer, &map);
 
         // Set up timestamp
-        buffer->pts = uint64_t(data.frameCount / data.fps * GST_SECOND);
+//        buffer->offset = data.frameCount;
+//        buffer->dts = uint64_t(1.0 * data.frameCount / data.fps * GST_SECOND);
+//        buffer->duration = uint64_t(1.0 / data.fps * GST_SECOND);
+//        cout << "pts = " << buffer->pts << endl;
 
         // Send buffer to gstreamer
-        GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(data.source), buffer);
+        GstFlowReturn ret;
+        ret = gst_app_src_push_buffer(GST_APP_SRC(data.source), buffer);
+//        g_signal_emit_by_name (data.source, "push-buffer", buffer, &ret);
+
 //        cout << "push ret = " << ret << endl;
 //        gst_buffer_unref(buffer);
 
@@ -180,7 +186,7 @@ void codeThreadSrc(GoblinData &data, const std::string &fileName) {
 static void startFeed(GstElement *source, guint size, GoblinData *data) {
     using namespace std;
     if (!data->flagRun) {
-        cout << "startFeed !" << endl;
+//        cout << "startFeed !" << endl;
         data->flagRun = true;
     } else {
 //        cout << "(start)" << endl;
@@ -191,13 +197,41 @@ static void startFeed(GstElement *source, guint size, GoblinData *data) {
 static void stopFeed(GstElement *source, GoblinData *data) {
     using namespace std;
     if (data->flagRun) {
-        cout << "stopFeed !" << endl;
+//        cout << "stopFeed !" << endl;
         data->flagRun = false;
     } else {
 //        cout << "(stop)" << data->flagRun << " " << data << endl;
     }
 }
 
+//======================================================================================================================
+void printPadsCB(const GValue * item, gpointer userData) {
+    using namespace std;
+    GstElement *element = (GstElement *)userData;
+    GstPad *pad = (GstPad *)g_value_get_object(item);
+    myAssert(pad);
+    cout << "PAD : " << gst_pad_get_name(pad) << endl;
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    char * str = gst_caps_to_string(caps);
+    cout << str << endl;
+    free(str);
+}
+
+void printPads(GstElement *element) {
+    using namespace std;
+    GstIterator *pad_iter = gst_element_iterate_pads(element);
+    gst_iterator_foreach(pad_iter, printPadsCB, element);
+    gst_iterator_free(pad_iter);
+
+}
+//======================================================================================================================
+void diagnose(GstElement *element) {
+    using namespace std;
+    cout << "=====================================" << endl;
+    cout << "DIAGNOSE element : " << gst_element_get_name(element) << endl;
+    printPads(element);
+    cout << "=====================================" << endl;
+}
 //======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
@@ -206,23 +240,22 @@ int main(int argc, char **argv) {
     string fileName = "/home/seymour/Videos/tvoya.mp4";
     gst_init(&argc, &argv);
 
-    // Crete pipeline
     GoblinData data;
-    data.source = gst_element_factory_make("appsrc", "goblin_source");
-    data.convVideo = gst_element_factory_make("videoconvert", "goblin_convert");
-    data.sinkVideo = gst_element_factory_make("autovideosink", "goblin_sink");
-    data.pipeline = gst_pipeline_new("goblin_pipeline");
-    myAssert(data.source && data.sinkVideo && data.convVideo && data.pipeline);
-
     // Examine the input file, determine width, height
     data.size = inspectFile(fileName, data.fps);
 
-    // Configure sink (sync=0 for fast, sync=1 for real-time)
-    g_object_set(data.sinkVideo, "sync", 1, nullptr);
+    // Crete pipeline
+//    string pipeStr = "appsrc name=goblin_src format=time caps=video/x-raw,format=BGR,width=640,height=360,framerate=25/1 ! videoconvert  name=goblin_conv ! x264enc !  avimux ! filesink location=out.avi";
+    string pipeStr = "appsrc name=goblin_src format=time ! videoconvert  name=goblin_conv ! x264enc !  avimux ! filesink location=out.avi";
+
+    data.pipeline = gst_parse_launch(pipeStr.c_str(), nullptr);
+    myAssert(data.pipeline);
+    data.source = gst_bin_get_by_name(GST_BIN(data.pipeline), "goblin_src");
+    myAssert(data.source);
 
     // CONFIGURE SOURCE
     ostringstream oss;
-    oss << "video/x-raw,format=BGR,width=" << data.size.width << ",height=" << data.size.height;
+    oss << "video/x-raw,format=BGR,width=" << data.size.width << ",height=" << data.size.height << ",framerate=" << int(lround(data.fps)) << "/1";
     cout << "CAPS : " << oss.str() << endl;
     GstCaps *capsVideo = gst_caps_from_string(oss.str().c_str());
     g_object_set(data.source, "caps", capsVideo, nullptr);
@@ -230,15 +263,10 @@ int main(int argc, char **argv) {
     g_signal_connect(data.source, "need-data", G_CALLBACK(startFeed), &data);
     g_signal_connect(data.source, "enough-data", G_CALLBACK(stopFeed), &data);
 
-    // Add + link
-    gst_bin_add_many(GST_BIN(data.pipeline), data.source, data.convVideo, data.sinkVideo, nullptr);
-    myAssert(gst_element_link_many(data.source, data.convVideo, data.sinkVideo, nullptr));
-
     // Play
     GstBus *bus = gst_element_get_bus(data.pipeline);
     GstStateChangeReturn ret = gst_element_set_state(data.pipeline, GST_STATE_PLAYING);
     myAssert(ret != GST_STATE_CHANGE_FAILURE, "Can't play !");
-
 
     // Start the appsrc thread (we could have used a main thread, just for fun)
     thread threadSrc([&data, &fileName] {
@@ -253,6 +281,12 @@ int main(int argc, char **argv) {
         gst_message_unref(msg);
         if (!res)
             break;
+
+
+        if (false) {
+            GstElement *element = gst_bin_get_by_name(GST_BIN(data.pipeline), "goblin_conv");
+            diagnose(element);
+        }
     }
 
     threadSrc.join();

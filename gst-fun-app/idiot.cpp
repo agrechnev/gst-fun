@@ -24,18 +24,7 @@ struct GoblinData {
     //==== Elements
     GstElement *pipeline = nullptr;
     GstElement *source = nullptr;
-    GstElement *tee = nullptr;
-    GstElement *queueAudio = nullptr;
-    GstElement *queueVideo = nullptr;
-    GstElement *queueApp = nullptr;
-    GstElement *convertAudio1 = nullptr;
-    GstElement *convertAudio2 = nullptr;
-    GstElement *resampleAudio = nullptr;
-    GstElement *sinkAudio = nullptr;
-    GstElement *visual = nullptr;
-    GstElement *convertVideo = nullptr;
-    GstElement *sinkVideo = nullptr;
-    GstElement *sinkApp = nullptr;
+
 
     //==== Generator data
     guint sourceId = 0;
@@ -150,6 +139,33 @@ static void errorCB(GstBus *bus, GstMessage *msg, GoblinData *data) {
     g_main_loop_quit(data->mainLoop);
 }
 //======================================================================================================================
+void printPadsCB(const GValue * item, gpointer userData) {
+    using namespace std;
+    GstElement *element = (GstElement *)userData;
+    GstPad *pad = (GstPad *)g_value_get_object(item);
+    myAssert(pad);
+    cout << "PAD : " << gst_pad_get_name(pad) << endl;
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    char * str = gst_caps_to_string(caps);
+    cout << str << endl;
+    free(str);
+}
+
+void printPads(GstElement *element) {
+    using namespace std;
+    GstIterator *pad_iter = gst_element_iterate_pads(element);
+    gst_iterator_foreach(pad_iter, printPadsCB, element);
+    gst_iterator_free(pad_iter);
+
+}
+void diagnose(GstElement *element) {
+    using namespace std;
+    cout << "=====================================" << endl;
+    cout << "DIAGNOSE element : " << gst_element_get_name(element) << endl;
+    printPads(element);
+    cout << "=====================================" << endl;
+}
+//======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
     cout << "fun5 !!!!" << endl;
@@ -158,68 +174,26 @@ int main(int argc, char **argv) {
     gst_init(&argc, &argv);
 
     // Create pipeline
-    data.source = gst_element_factory_make("appsrc", "goblin_source");
-    data.tee = gst_element_factory_make("tee", "goblin_tee");
-    data.queueAudio = gst_element_factory_make("queue", "goblin_queue_audio");
-    data.queueVideo = gst_element_factory_make("queue", "goblin_queue_video");
-    data.queueApp = gst_element_factory_make("queue", "goblin_queue_app");
-    data.convertAudio1 = gst_element_factory_make("audioconvert", "goblin_convert_audio1");
-    data.convertAudio2 = gst_element_factory_make("audioconvert", "goblin_convert_audio2");
-    data.resampleAudio = gst_element_factory_make("audioresample", "goblin_resample_audio");
-    data.sinkAudio = gst_element_factory_make("autoaudiosink", "goblin_sink_audio");
-    data.visual = gst_element_factory_make("wavescope", "goblin_wavescope");
-    data.convertVideo = gst_element_factory_make("videoconvert", "goblin_convert_video");
-    data.sinkVideo = gst_element_factory_make("autovideosink", "goblin_sink_video");
-    data.sinkApp = gst_element_factory_make("appsink", "goblin_sink_app");
-    data.pipeline = gst_pipeline_new("goblin_pipeline");
-
-    myAssert(data.source && data.tee && data.queueAudio && data.queueVideo && data.queueApp);
-    myAssert(data.convertAudio1 && data.resampleAudio && data.sinkAudio);
-    myAssert(data.convertAudio2 && data.visual && data.convertVideo && data.sinkVideo && data.pipeline);
-
-    // Configure visual
-    g_object_set(data.visual, "shader", 0, "style", 1, nullptr);
-
-    // Configure appsrc
-    GstAudioInfo info;
-    gst_audio_info_set_format(&info, GST_AUDIO_FORMAT_S16, SAMPLE_RATE, 1, nullptr);
-    GstCaps *capsAudio = gst_audio_info_to_caps(&info);
-    printCaps(capsAudio, " ");
-    g_object_set(data.source, "caps", capsAudio, "format", GST_FORMAT_TIME, nullptr);
+    string pipeStr = "appsrc name=goblin_src format=time caps=audio/x-raw,format=S16LE,rate=44100,channels=1,layout=interleaved ! audioconvert ! audioresample ! autoaudiosink";
+    data.pipeline = gst_parse_launch(pipeStr.c_str(), nullptr);
+    myAssert(data.pipeline);
+    data.source = gst_bin_get_by_name(GST_BIN(data.pipeline), "goblin_src");
+    myAssert(data.source);
     g_signal_connect(data.source, "need-data", G_CALLBACK(startFeed), &data);
     g_signal_connect(data.source, "enough-data", G_CALLBACK(stopFeed), &data);
 
-    // Configure appsink
-    g_object_set(data.sinkApp, "emit-signals", TRUE, "caps", capsAudio, nullptr);
-    g_signal_connect(data.sinkApp, "new-sample", G_CALLBACK(newSample), &data);
-    gst_caps_unref(capsAudio);
+    cout << "BEFORE :" << endl;
+    diagnose(data.source);
 
-    // Add elements and link what we can
-    gst_bin_add_many(GST_BIN(data.pipeline),
-                     data.source, data.tee, data.queueAudio, data.queueVideo, data.queueApp,
-                     data.convertAudio1, data.resampleAudio, data.sinkAudio,
-                     data.convertAudio2, data.visual, data.convertVideo, data.sinkVideo,
-                     data.sinkApp,
-                     nullptr);
+//    GstAudioInfo info;
+//    gst_audio_info_set_format(&info, GST_AUDIO_FORMAT_S16, SAMPLE_RATE, 1, nullptr);
+//    GstCaps *capsAudio = gst_audio_info_to_caps(&info);
+//    printCaps(capsAudio, " ");
+//    g_object_set(data.source, "caps", capsAudio, "format", GST_FORMAT_TIME, nullptr);
+//    gst_caps_unref(capsAudio);
 
-    myAssert(gst_element_link_many(data.source, data.tee, nullptr));
-    myAssert(gst_element_link_many(data.queueAudio, data.convertAudio1, data.resampleAudio, data.sinkAudio, nullptr));
-    myAssert(gst_element_link_many(data.queueVideo, data.convertAudio2, data.visual, data.convertVideo, data.sinkVideo, nullptr));
-    myAssert(gst_element_link_many(data.queueApp,  data.sinkApp, nullptr));
+//    printCaps(capsAudio, "");
 
-    // Manually link tee
-    GstPad *padTeeAudio = gst_element_request_pad_simple(data.tee, "src_%u");
-    GstPad *padTeeVideo = gst_element_request_pad_simple(data.tee, "src_%u");
-    GstPad *padTeeApp = gst_element_request_pad_simple(data.tee, "src_%u");
-    GstPad *padQueueAudio = gst_element_get_static_pad(data.queueAudio, "sink");
-    GstPad *padQueueVideo = gst_element_get_static_pad(data.queueVideo, "sink");
-    GstPad *padQueueApp = gst_element_get_static_pad(data.queueApp, "sink");
-    myAssert(gst_pad_link(padTeeAudio, padQueueAudio) == GST_PAD_LINK_OK);
-    myAssert(gst_pad_link(padTeeVideo, padQueueVideo) == GST_PAD_LINK_OK);
-    myAssert(gst_pad_link(padTeeApp, padQueueApp) == GST_PAD_LINK_OK);
-    gst_object_unref(padQueueAudio);
-    gst_object_unref(padQueueVideo);
-    gst_object_unref(padQueueApp);
 
     // Error callback
     GstBus *bus = gst_element_get_bus(data.pipeline);
@@ -233,13 +207,6 @@ int main(int argc, char **argv) {
     // Create and run GLIB main loop
     data.mainLoop = g_main_loop_new(nullptr, FALSE);
     g_main_loop_run(data.mainLoop);
-
-    // Release the request pads from the Tee, and unref them
-    gst_element_release_request_pad(data.tee, padTeeAudio);
-    gst_element_release_request_pad(data.tee, padTeeVideo);
-    gst_object_unref(padTeeAudio);
-    gst_object_unref(padTeeVideo);
-    gst_object_unref(padTeeApp);
 
     gst_element_set_state(data.pipeline, GST_STATE_NULL);
     gst_object_unref(data.pipeline);
