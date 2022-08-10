@@ -41,3 +41,9 @@ target_link_libraries(fun5 ${GST_LIBRARIES}  ${OpenCV_LIBS})
 
 add_executable(fun6 fun6.cpp)
 target_link_libraries(fun6 ${GST_LIBRARIES}  ${OpenCV_LIBS})
+
+add_executable(audio1 audio1.cpp)
+target_link_libraries(audio1 ${GST_LIBRARIES}  ${OpenCV_LIBS})
+
+add_executable(av1 av1.cpp)
+target_link_libraries(av1 ${GST_LIBRARIES}  ${OpenCV_LIBS})

@@ -1,15 +1,15 @@
 //
 // Created by IT-JIM 
-// FUN5: Two gstreamer pipelines, process frames in opencv in the middle
+// AV1: Goblin + Elf pipelines, audio + video (basically fun6 + audio1 combined)
 
 #include <iostream>
 #include <string>
 #include <stdexcept>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 #include <gst/gst.h>
-#include <gst/video/video.h>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
 
@@ -27,8 +27,10 @@ struct GoblinData {
     // Elements
     GstElement *goblinPipeline = nullptr;
     GstElement *goblinSinkV = nullptr;
+    GstElement *goblinSinkA = nullptr;
     GstElement *elfPipeline = nullptr;
     GstElement *elfSrcV = nullptr;
+    GstElement *elfSrcA = nullptr;
 
     // Misc
 //    cv::Size2i size;
@@ -37,7 +39,11 @@ struct GoblinData {
     // Flags
     std::atomic_bool flagStop{false};
     std::atomic_bool flagRunV{false};
+    std::atomic_bool flagRunA{false};
     std::atomic_bool flagElfStarted{false};
+    std::atomic_bool flagElfStartedA{false};
+    std::atomic_bool flagElfStartedV{false};
+    std::mutex mutexElfStart;
 };
 //======================================================================================================================
 static gboolean printField(GQuark field, const GValue *value, gpointer pfx) {
@@ -116,10 +122,12 @@ void codeThreadBus(GstElement *pipeline, GoblinData &data, const std::string &pr
     using namespace std;
     GstBus *bus = gst_element_get_bus(pipeline);
 
-    while (!data.flagStop) {
+//    while (!data.flagStop) {
+    while (true) {
         // We limit query to 200ms, so that flagStop can work
         // This is a precaution, as normally we quit on EOS anyway
-        GstMessage *msg = gst_bus_timed_pop(bus, GST_MSECOND * 200);
+        // Update: if writing to a file, disable flagStop, EOS should work
+        GstMessage *msg = gst_bus_timed_pop(bus, GST_MSECOND * 500);
         if (!msg)
             continue;
         bool res = busProcessMsg(pipeline, msg, prefix);
@@ -133,14 +141,20 @@ void codeThreadBus(GstElement *pipeline, GoblinData &data, const std::string &pr
 //======================================================================================================================
 static void startFeed(GstElement *source, guint size, GoblinData *data) {
     using namespace std;
+    bool isV = false;
+    if (source == data->elfSrcV)
+        isV = true;
+    else
+        myAssert(source == data->elfSrcA);
+
     if (!data->flagRunV) {
-        cout << "startFeed !" << endl;
+        string prefix = isV ? "V : " : "A : ";
+        cout << prefix << "startFeed !" << endl;
         data->flagRunV = true;
     } else {
 //        cout << "(start)" << endl;
     }
 }
-
 //======================================================================================================================
 static void stopFeed(GstElement *source, GoblinData *data) {
     using namespace std;
@@ -153,29 +167,53 @@ static void stopFeed(GstElement *source, GoblinData *data) {
 }
 
 //======================================================================================================================
-void printPadsCB(const GValue * item, gpointer user_data) {
+void printPadsCB(const GValue * item, gpointer userData) {
     using namespace std;
-    gchar *str = gst_value_serialize(item);
-    cout << "BRIANNA : " << str << endl;
-    g_free(str);
+    GstElement *element = (GstElement *)userData;
+    GstPad *pad = (GstPad *)g_value_get_object(item);
+    myAssert(pad);
+    cout << "PAD : " << gst_pad_get_name(pad) << endl;
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    char * str = gst_caps_to_string(caps);
+    cout << str << endl;
+    free(str);
 }
 
 void printPads(GstElement *element) {
     using namespace std;
     GstIterator *pad_iter = gst_element_iterate_pads(element);
-    gst_iterator_foreach(pad_iter, printPadsCB, nullptr);
+    gst_iterator_foreach(pad_iter, printPadsCB, element);
     gst_iterator_free(pad_iter);
 
 }
+void diagnose(GstElement *element) {
+    using namespace std;
+    cout << "=====================================" << endl;
+    cout << "DIAGNOSE element : " << gst_element_get_name(element) << endl;
+    printPads(element);
+    cout << "=====================================" << endl;
+}
 //======================================================================================================================
-/// Process frames with openCV
+/// Start the elf pipeline, thread-safe to avoid double start
+void playElf(GoblinData &data) {
+    using namespace std;
+    lock_guard<mutex> lock(data.mutexElfStart);
+    // We check again under mutex, the start code runs only once strictly !
+    if (!data.flagElfStarted) {
+        GstStateChangeReturn ret = gst_element_set_state(data.elfPipeline, GST_STATE_PLAYING);
+        myAssert(ret != GST_STATE_CHANGE_FAILURE, "Can't play Elf !");
+        data.flagElfStarted = true;
+    }
+}
+//======================================================================================================================
+/// Process video frames with openCV
 void codeThreadProcessV(GoblinData &data) {
     using namespace std;
     using namespace cv;
     while (!data.flagStop) {
         // Wait if the ELF pipeline does not want data
         while (data.flagElfStarted && !data.flagRunV) {
-            cout << "(wait)" << endl;
+            cout << "V: (wait)" << endl;
             this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
@@ -185,13 +223,13 @@ void codeThreadProcessV(GoblinData &data) {
 
         // Pull the sample
         if (gst_app_sink_is_eos(GST_APP_SINK(data.goblinSinkV))) {
-            cout << "EOS !" << endl;
+            cout << "V: EOS !" << endl;
             break;
         }
 
         GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(data.goblinSinkV));
         if (sample == nullptr) {
-            cout << "NO sample !" << endl;
+            cout << "V: NO sample !" << endl;
             break;
         }
 
@@ -206,18 +244,19 @@ void codeThreadProcessV(GoblinData &data) {
         assert(gst_structure_get_int(s, "height", &imH));
         int f1, f2;
         assert(gst_structure_get_fraction(s, "framerate", &f1, &f2));
-        cout << "Sample: W = " << imW << ", H = " << imH << ", framerate = " << f1 << " / " << f2 << endl;
+//        cout << "V: Sample: W = " << imW << ", H = " << imH << ", framerate = " << f1 << " / " << f2 << endl;
 
-        if (!data.flagElfStarted) {
+        if (!data.flagElfStartedV) {
             // Set elf caps
             GstCaps *capsElf = gst_caps_copy(caps);
             g_object_set(data.elfSrcV, "caps", capsElf, nullptr);
             gst_caps_unref(capsElf);
+            data.flagElfStartedV = true;
+        }
 
-            // Start the elf pipeline
-            GstStateChangeReturn ret = gst_element_set_state(data.elfPipeline, GST_STATE_PLAYING);
-            myAssert(ret != GST_STATE_CHANGE_FAILURE, "Can't play Elf !");
-            data.flagElfStarted = true;
+        // Start the elf pipeline, thread-safe to avoid double start
+        if (!data.flagElfStarted && data.flagElfStartedV && true) {
+            playElf(data);
         }
 
 //        cout << "sample !" << endl;
@@ -249,15 +288,7 @@ void codeThreadProcessV(GoblinData &data) {
         bufferOut->pts = pts;
         GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(data.elfSrcV), bufferOut);
 
-        int key = 0;
-//        if (true) {
-//            imshow("frame", frame);
-//            key = waitKey(1);
-//        }
-
         gst_sample_unref(sample);
-        if (27 == key)
-            break;
     }
     gst_app_src_end_of_stream(GST_APP_SRC(data.elfSrcV));
     data.flagStop = true;
@@ -265,24 +296,26 @@ void codeThreadProcessV(GoblinData &data) {
 //======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
-    cout << "fun5" << endl;
+    cout << "AV1" << endl;
 
     string uri = "file:///home/seymour/Videos/tvoya.mp4";
     gst_init(&argc, &argv);
     GoblinData data;
 
     // Create Goblin (input) pipeline
-    string goblinPipeStr = "uridecodebin3 name=goblin_src uri=" + uri + " ! videoconvert ! video/x-raw, format=BGR ! appsink sync=true name=goblin_sink";
+    string goblinPipeStr = "uridecodebin3 uri=" + uri + " name=u ! queue ! videoconvert ! appsink sync=false name=goblin_sink_v caps=video/x-raw,format=BGR " +
+            "u. ! queue ! audioconvert ! appsink sync=false name=goblin_sink_a caps=audio/x-raw,format=S16LE,layout=interleaved";
     data.goblinPipeline = gst_parse_launch(goblinPipeStr.c_str(), nullptr);
     myAssert(data.goblinPipeline);
-    data.goblinSinkV = gst_bin_get_by_name(GST_BIN (data.goblinPipeline), "goblin_sink");
+    data.goblinSinkV = gst_bin_get_by_name(GST_BIN (data.goblinPipeline), "goblin_sink_v");
     myAssert(data.goblinSinkV);
 
     // Create Elf (output) pipeline
-    string elfPipeStr = "appsrc name=elf_src ! videoconvert ! autovideosink";
+//    string elfPipeStr = "appsrc name=elf_src_v format=time caps=video/x-raw, format=BGR ! videoconvert ! x264enc ! avimux ! filesink location=out.avi";
+    string elfPipeStr = "appsrc name=elf_src_v format=time caps=video/x-raw, format=BGR ! videoconvert ! autovideosink";
     data.elfPipeline = gst_parse_launch(elfPipeStr.c_str(), nullptr);
     myAssert(data.elfPipeline);
-    data.elfSrcV = gst_bin_get_by_name(GST_BIN(data.elfPipeline), "elf_src");
+    data.elfSrcV = gst_bin_get_by_name(GST_BIN(data.elfPipeline), "elf_src_v");
     myAssert(data.elfSrcV);
     g_signal_connect(data.elfSrcV, "need-data", G_CALLBACK(startFeed), &data);
     g_signal_connect(data.elfSrcV, "enough-data", G_CALLBACK(stopFeed), &data);
@@ -299,12 +332,12 @@ int main(int argc, char **argv) {
     thread threadBusElf([&data]{
         codeThreadBus(data.elfPipeline, data, "ELF");
     });
-    thread threadProcess([&data]{
+    thread threadProcessV([&data]{
         codeThreadProcessV(data);
     });
     threadBusGoblin.join();
     threadBusElf.join();
-    threadProcess.join();
+    threadProcessV.join();
 
     // Stop and destroy pipelines
     gst_element_set_state(data.goblinPipeline, GST_STATE_NULL);

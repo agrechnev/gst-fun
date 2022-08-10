@@ -1,6 +1,7 @@
 //
 // Created by IT-JIM 
-// FUN5: Two gstreamer pipelines, process frames in opencv in the middle
+// AUDIO1: goblin and elf pipelines (like in FUN6), audio-only version
+// We didn't do simpler examples, as this one worked out of the box ...
 
 #include <iostream>
 #include <string>
@@ -9,11 +10,8 @@
 #include <atomic>
 
 #include <gst/gst.h>
-#include <gst/video/video.h>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
-
-#include <opencv2/opencv.hpp>
 
 
 //======================================================================================================================
@@ -153,30 +151,41 @@ static void stopFeed(GstElement *source, GoblinData *data) {
 }
 
 //======================================================================================================================
-void printPadsCB(const GValue * item, gpointer user_data) {
+void printPadsCB(const GValue * item, gpointer userData) {
     using namespace std;
-    gchar *str = gst_value_serialize(item);
-    cout << "BRIANNA : " << str << endl;
-    g_free(str);
+    GstElement *element = (GstElement *)userData;
+    GstPad *pad = (GstPad *)g_value_get_object(item);
+    myAssert(pad);
+    cout << "PAD : " << gst_pad_get_name(pad) << endl;
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    char * str = gst_caps_to_string(caps);
+    cout << str << endl;
+    free(str);
 }
 
 void printPads(GstElement *element) {
     using namespace std;
     GstIterator *pad_iter = gst_element_iterate_pads(element);
-    gst_iterator_foreach(pad_iter, printPadsCB, nullptr);
+    gst_iterator_foreach(pad_iter, printPadsCB, element);
     gst_iterator_free(pad_iter);
 
+}
+void diagnose(GstElement *element) {
+    using namespace std;
+    cout << "=====================================" << endl;
+    cout << "DIAGNOSE element : " << gst_element_get_name(element) << endl;
+    printPads(element);
+    cout << "=====================================" << endl;
 }
 //======================================================================================================================
 /// Process frames with openCV
 void codeThreadProcessV(GoblinData &data) {
     using namespace std;
-    using namespace cv;
     while (!data.flagStop) {
         // Wait if the ELF pipeline does not want data
-        while (data.flagElfStarted && !data.flagRunV) {
+        while (data.flagElfStarted && !data.flagRunV && !data.flagStop) {
             cout << "(wait)" << endl;
-            this_thread::sleep_for(std::chrono::milliseconds(10));
+            this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
         // Check again after waiting
@@ -200,17 +209,15 @@ void codeThreadProcessV(GoblinData &data) {
         myAssert(caps != nullptr);
 //        printCaps(caps, "");
 
-        GstStructure *s = gst_caps_get_structure(caps, 0);
-        int imW, imH;
-        assert(gst_structure_get_int(s, "width", &imW));
-        assert(gst_structure_get_int(s, "height", &imH));
-        int f1, f2;
-        assert(gst_structure_get_fraction(s, "framerate", &f1, &f2));
-        cout << "Sample: W = " << imW << ", H = " << imH << ", framerate = " << f1 << " / " << f2 << endl;
+//        GstStructure *s = gst_caps_get_structure(caps, 0);
+//        assert(gst_structure_get_int(s, "width", &imW));
 
         if (!data.flagElfStarted) {
             // Set elf caps
             GstCaps *capsElf = gst_caps_copy(caps);
+//            printCaps(capsElf, "");
+//            exit(0);
+
             g_object_set(data.elfSrcV, "caps", capsElf, nullptr);
             gst_caps_unref(capsElf);
 
@@ -225,39 +232,25 @@ void codeThreadProcessV(GoblinData &data) {
         GstBuffer *bufferIn = gst_sample_get_buffer(sample);
         GstMapInfo mapIn;
         myAssert(gst_buffer_map(bufferIn, &mapIn, GST_MAP_READ));
-        myAssert(mapIn.size == imW * imH * 3);
 //        cout << "size = " << map.size << " ==? " << imW*imH*3 << endl;
 
         // Timestamp
         uint64_t pts = bufferIn->pts;
 
-        // Modify the image
-        // Clone to be safe, we don't want to modify the input buffer
-        Mat frame = Mat(imH, imW, CV_8UC3, (void *) mapIn.data).clone();
-        gst_buffer_unmap(bufferIn, &mapIn);
-        // Modify the frame
-        Mat frameMid(frame, Rect2i(imW/3, imH/3, imW/3, imH/3));
-        bitwise_not(frameMid, frameMid);
-
         // Create the output bufer and send it to elfSrc
-        int bufferSize = frame.cols * frame.rows * 3;
+        int bufferSize = mapIn.size;
+        cout << "bufferSize = " << mapIn.size << endl;
         GstBuffer *bufferOut = gst_buffer_new_and_alloc(bufferSize);
         GstMapInfo mapOut;
         gst_buffer_map(bufferOut, &mapOut, GST_MAP_WRITE);
-        memcpy(mapOut.data, frame.data, bufferSize);
+        memcpy(mapOut.data, mapIn.data, bufferSize);
+        gst_buffer_unmap(bufferIn, &mapIn);
         gst_buffer_unmap(bufferOut, &mapOut);
-        bufferOut->pts = pts;
+        bufferOut->pts = bufferIn->pts;
+        bufferOut->duration = bufferIn->duration;
         GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(data.elfSrcV), bufferOut);
 
-        int key = 0;
-//        if (true) {
-//            imshow("frame", frame);
-//            key = waitKey(1);
-//        }
-
         gst_sample_unref(sample);
-        if (27 == key)
-            break;
     }
     gst_app_src_end_of_stream(GST_APP_SRC(data.elfSrcV));
     data.flagStop = true;
@@ -265,28 +258,28 @@ void codeThreadProcessV(GoblinData &data) {
 //======================================================================================================================
 int main(int argc, char **argv) {
     using namespace std;
-    cout << "fun5" << endl;
+    cout << "audio1" << endl;
 
     string uri = "file:///home/seymour/Videos/tvoya.mp4";
+//    string uri = "file:///home/seymour/w/7/voclarity_data/misc/obama.wav";
     gst_init(&argc, &argv);
     GoblinData data;
 
     // Create Goblin (input) pipeline
-    string goblinPipeStr = "uridecodebin3 name=goblin_src uri=" + uri + " ! videoconvert ! video/x-raw, format=BGR ! appsink sync=true name=goblin_sink";
+    string goblinPipeStr = "uridecodebin3 name=goblin_src uri=" + uri + " ! audioconvert ! audio/x-raw,format=S16LE,layout=interleaved ! appsink sync=false name=goblin_sink";
     data.goblinPipeline = gst_parse_launch(goblinPipeStr.c_str(), nullptr);
     myAssert(data.goblinPipeline);
     data.goblinSinkV = gst_bin_get_by_name(GST_BIN (data.goblinPipeline), "goblin_sink");
     myAssert(data.goblinSinkV);
 
     // Create Elf (output) pipeline
-    string elfPipeStr = "appsrc name=elf_src ! videoconvert ! autovideosink";
+    string elfPipeStr = "appsrc name=elf_src format=time caps=audio/x-raw,format=S16LE,layout=interleaved ! audioconvert ! audioresample ! autoaudiosink";
     data.elfPipeline = gst_parse_launch(elfPipeStr.c_str(), nullptr);
     myAssert(data.elfPipeline);
     data.elfSrcV = gst_bin_get_by_name(GST_BIN(data.elfPipeline), "elf_src");
     myAssert(data.elfSrcV);
     g_signal_connect(data.elfSrcV, "need-data", G_CALLBACK(startFeed), &data);
     g_signal_connect(data.elfSrcV, "enough-data", G_CALLBACK(stopFeed), &data);
-
 
     // Play the Goblin pipeline
     GstStateChangeReturn ret = gst_element_set_state(data.goblinPipeline, GST_STATE_PLAYING);

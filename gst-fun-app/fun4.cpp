@@ -37,7 +37,7 @@ struct GoblinData {
 
     // Flags
     std::atomic_bool flagStop{false};
-    std::atomic_bool flagRun{false};
+    std::atomic_bool flagRunV{false};
 };
 
 //======================================================================================================================
@@ -138,7 +138,7 @@ void codeThreadSrc(GoblinData &data, const std::string &fileName) {
 
     Mat frame;
     while (!data.flagStop) {
-        if (!data.flagRun) {
+        if (!data.flagRunV) {
             cout << "(wait)" << endl;
             this_thread::sleep_for(chrono::milliseconds(10));
             continue;
@@ -179,9 +179,9 @@ void codeThreadSrc(GoblinData &data, const std::string &fileName) {
 //======================================================================================================================
 static void startFeed(GstElement *source, guint size, GoblinData *data) {
     using namespace std;
-    if (!data->flagRun) {
+    if (!data->flagRunV) {
         cout << "startFeed !" << endl;
-        data->flagRun = true;
+        data->flagRunV = true;
     } else {
 //        cout << "(start)" << endl;
     }
@@ -190,9 +190,9 @@ static void startFeed(GstElement *source, guint size, GoblinData *data) {
 //======================================================================================================================
 static void stopFeed(GstElement *source, GoblinData *data) {
     using namespace std;
-    if (data->flagRun) {
+    if (data->flagRunV) {
         cout << "stopFeed !" << endl;
-        data->flagRun = false;
+        data->flagRunV = false;
     } else {
 //        cout << "(stop)" << data->flagRun << " " << data << endl;
     }
