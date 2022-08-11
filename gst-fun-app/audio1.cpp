@@ -24,9 +24,9 @@ inline void myAssert(bool b, const std::string &s = "MYASSERT ERROR !") {
 struct GoblinData {
     // Elements
     GstElement *goblinPipeline = nullptr;
-    GstElement *goblinSinkV = nullptr;
+    GstElement *goblinSinkA = nullptr;
     GstElement *elfPipeline = nullptr;
-    GstElement *elfSrcV = nullptr;
+    GstElement *elfScrA = nullptr;
 
     // Misc
 //    cv::Size2i size;
@@ -34,7 +34,7 @@ struct GoblinData {
 
     // Flags
     std::atomic_bool flagStop{false};
-    std::atomic_bool flagRunV{false};
+    std::atomic_bool flagRunA{false};
     std::atomic_bool flagElfStarted{false};
 };
 //======================================================================================================================
@@ -131,9 +131,9 @@ void codeThreadBus(GstElement *pipeline, GoblinData &data, const std::string &pr
 //======================================================================================================================
 static void startFeed(GstElement *source, guint size, GoblinData *data) {
     using namespace std;
-    if (!data->flagRunV) {
+    if (!data->flagRunA) {
         cout << "startFeed !" << endl;
-        data->flagRunV = true;
+        data->flagRunA = true;
     } else {
 //        cout << "(start)" << endl;
     }
@@ -142,9 +142,9 @@ static void startFeed(GstElement *source, guint size, GoblinData *data) {
 //======================================================================================================================
 static void stopFeed(GstElement *source, GoblinData *data) {
     using namespace std;
-    if (data->flagRunV) {
+    if (data->flagRunA) {
         cout << "stopFeed !" << endl;
-        data->flagRunV = false;
+        data->flagRunA = false;
     } else {
 //        cout << "(stop)" << data->flagRun << " " << data << endl;
     }
@@ -178,12 +178,12 @@ void diagnose(GstElement *element) {
     cout << "=====================================" << endl;
 }
 //======================================================================================================================
-/// Process frames with openCV
-void codeThreadProcessV(GoblinData &data) {
+/// Process audio
+void codeThreadProcessA(GoblinData &data) {
     using namespace std;
     while (!data.flagStop) {
         // Wait if the ELF pipeline does not want data
-        while (data.flagElfStarted && !data.flagRunV && !data.flagStop) {
+        while (data.flagElfStarted && !data.flagRunA && !data.flagStop) {
             cout << "(wait)" << endl;
             this_thread::sleep_for(std::chrono::milliseconds(50));
         }
@@ -193,12 +193,12 @@ void codeThreadProcessV(GoblinData &data) {
             break;
 
         // Pull the sample
-        if (gst_app_sink_is_eos(GST_APP_SINK(data.goblinSinkV))) {
+        if (gst_app_sink_is_eos(GST_APP_SINK(data.goblinSinkA))) {
             cout << "EOS !" << endl;
             break;
         }
 
-        GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(data.goblinSinkV));
+        GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(data.goblinSinkA));
         if (sample == nullptr) {
             cout << "NO sample !" << endl;
             break;
@@ -218,7 +218,7 @@ void codeThreadProcessV(GoblinData &data) {
 //            printCaps(capsElf, "");
 //            exit(0);
 
-            g_object_set(data.elfSrcV, "caps", capsElf, nullptr);
+            g_object_set(data.elfScrA, "caps", capsElf, nullptr);
             gst_caps_unref(capsElf);
 
             // Start the elf pipeline
@@ -248,11 +248,11 @@ void codeThreadProcessV(GoblinData &data) {
         gst_buffer_unmap(bufferOut, &mapOut);
         bufferOut->pts = bufferIn->pts;
         bufferOut->duration = bufferIn->duration;
-        GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(data.elfSrcV), bufferOut);
+        GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(data.elfScrA), bufferOut);
 
         gst_sample_unref(sample);
     }
-    gst_app_src_end_of_stream(GST_APP_SRC(data.elfSrcV));
+    gst_app_src_end_of_stream(GST_APP_SRC(data.elfScrA));
     data.flagStop = true;
 }
 //======================================================================================================================
@@ -269,17 +269,17 @@ int main(int argc, char **argv) {
     string goblinPipeStr = "uridecodebin3 name=goblin_src uri=" + uri + " ! audioconvert ! audio/x-raw,format=S16LE,layout=interleaved ! appsink sync=false name=goblin_sink";
     data.goblinPipeline = gst_parse_launch(goblinPipeStr.c_str(), nullptr);
     myAssert(data.goblinPipeline);
-    data.goblinSinkV = gst_bin_get_by_name(GST_BIN (data.goblinPipeline), "goblin_sink");
-    myAssert(data.goblinSinkV);
+    data.goblinSinkA = gst_bin_get_by_name(GST_BIN (data.goblinPipeline), "goblin_sink");
+    myAssert(data.goblinSinkA);
 
     // Create Elf (output) pipeline
     string elfPipeStr = "appsrc name=elf_src format=time caps=audio/x-raw,format=S16LE,layout=interleaved ! audioconvert ! audioresample ! autoaudiosink";
     data.elfPipeline = gst_parse_launch(elfPipeStr.c_str(), nullptr);
     myAssert(data.elfPipeline);
-    data.elfSrcV = gst_bin_get_by_name(GST_BIN(data.elfPipeline), "elf_src");
-    myAssert(data.elfSrcV);
-    g_signal_connect(data.elfSrcV, "need-data", G_CALLBACK(startFeed), &data);
-    g_signal_connect(data.elfSrcV, "enough-data", G_CALLBACK(stopFeed), &data);
+    data.elfScrA = gst_bin_get_by_name(GST_BIN(data.elfPipeline), "elf_src");
+    myAssert(data.elfScrA);
+    g_signal_connect(data.elfScrA, "need-data", G_CALLBACK(startFeed), &data);
+    g_signal_connect(data.elfScrA, "enough-data", G_CALLBACK(stopFeed), &data);
 
     // Play the Goblin pipeline
     GstStateChangeReturn ret = gst_element_set_state(data.goblinPipeline, GST_STATE_PLAYING);
@@ -293,7 +293,7 @@ int main(int argc, char **argv) {
         codeThreadBus(data.elfPipeline, data, "ELF");
     });
     thread threadProcess([&data]{
-        codeThreadProcessV(data);
+        codeThreadProcessA(data);
     });
     threadBusGoblin.join();
     threadBusElf.join();
