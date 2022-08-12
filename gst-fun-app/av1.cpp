@@ -79,8 +79,6 @@ inline void checkErr(GError * err){
     exit(0);
 }
 
-
-
 //======================================================================================================================
 static int busProcessMsg(GstElement *pipeline, GstMessage *msg, const std::string &prefix) {
     using namespace std;
@@ -415,7 +413,7 @@ int main(int argc, char **argv) {
     string goblinPipeStr = "uridecodebin3 uri=" + uri + " name=u ! queue ! videoconvert ! appsink sync=false name=goblin_sink_v caps=video/x-raw,format=BGR " +
             "u. ! queue ! audioconvert ! appsink sync=false name=goblin_sink_a caps=audio/x-raw,format=S16LE,layout=interleaved";
     GError *err = nullptr;
-    data.goblinPipeline = gst_parse_launch(goblinPipeStr.c_str(), nullptr);
+    data.goblinPipeline = gst_parse_launch(goblinPipeStr.c_str(), &err);
     checkErr(err);
     myAssert(data.goblinPipeline);
     data.goblinSinkV = gst_bin_get_by_name(GST_BIN (data.goblinPipeline), "goblin_sink_v");
