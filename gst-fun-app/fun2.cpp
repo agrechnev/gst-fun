@@ -111,8 +111,8 @@ int main(int argc, char **argv) {
         myAssert(caps != nullptr);
         GstStructure *s = gst_caps_get_structure(caps, 0);
         int imW, imH;
-        assert(gst_structure_get_int(s, "width", &imW));
-        assert(gst_structure_get_int(s, "height", &imH));
+        myAssert(gst_structure_get_int(s, "width", &imW));
+        myAssert(gst_structure_get_int(s, "height", &imH));
 //        cout << "W = " << imW << ", H = " << imH << endl;
 
 //        cout << "sample !" << endl;

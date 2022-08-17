@@ -213,10 +213,10 @@ void codeThreadProcessA(GoblinData &data) {
 
         GstStructure *s = gst_caps_get_structure(caps, 0);
         int imW, imH;
-        assert(gst_structure_get_int(s, "width", &imW));
-        assert(gst_structure_get_int(s, "height", &imH));
+        myAssert(gst_structure_get_int(s, "width", &imW));
+        myAssert(gst_structure_get_int(s, "height", &imH));
         int f1, f2;
-        assert(gst_structure_get_fraction(s, "framerate", &f1, &f2));
+        myAssert(gst_structure_get_fraction(s, "framerate", &f1, &f2));
         cout << "Sample: W = " << imW << ", H = " << imH << ", framerate = " << f1 << " / " << f2 << endl;
 
         if (!data.flagElfStarted) {

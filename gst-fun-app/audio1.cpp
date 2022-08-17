@@ -210,7 +210,7 @@ void codeThreadProcessA(GoblinData &data) {
 //        printCaps(caps, "");
 
 //        GstStructure *s = gst_caps_get_structure(caps, 0);
-//        assert(gst_structure_get_int(s, "width", &imW));
+//        myAssert(gst_structure_get_int(s, "width", &imW));
 
         if (!data.flagElfStarted) {
             // Set elf caps
