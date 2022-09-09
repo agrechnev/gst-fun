@@ -169,7 +169,7 @@ void printPads(GstElement *element) {
 }
 //======================================================================================================================
 /// Process frames with openCV
-void codeThreadProcessA(GoblinData &data) {
+void codeThreadProcessV(GoblinData &data) {
     using namespace std;
     using namespace cv;
     while (!data.flagStop) {
@@ -299,12 +299,12 @@ int main(int argc, char **argv) {
     thread threadBusElf([&data]{
         codeThreadBus(data.elfPipeline, data, "ELF");
     });
-    thread threadProcess([&data]{
-        codeThreadProcessA(data);
+    thread threadProcessV([&data]{
+        codeThreadProcessV(data);
     });
     threadBusGoblin.join();
     threadBusElf.join();
-    threadProcess.join();
+    threadProcessV.join();
 
     // Stop and destroy pipelines
     gst_element_set_state(data.goblinPipeline, GST_STATE_NULL);
